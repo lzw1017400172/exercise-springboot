@@ -1,5 +1,6 @@
 package com.lzw.config.filter;
 
+import com.lzw.config.Constant;
 import com.lzw.util.JwtTokenUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,15 +29,52 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
     private String tokenHeader;
     @Value("${jwt.tokenHead}")
     private String tokenHead;
-
+    @Value("${login.start-urls}")
+    private String startUrl;
+    @Value("${login.end-urls}")
+    private String endUrl;
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
-        if("/login".equals(request.getServletPath())){
+        String[] startUrls = startUrl.split(",");
+        String[] endUrls = endUrl.split(",");
+        boolean anon = false;
+        String tagertUrl = request.getServletPath();
+        for(String url:endUrls){
+            if(tagertUrl.endsWith(url)){
+                anon = true;
+                break;
+            }
+        }
+        if(!anon){
+            for(String url:startUrls){
+                if(tagertUrl.startsWith(url)){
+                    anon = true;
+                    break;
+                }
+            }
+        }
+
+        if(anon){
             chain.doFilter(request, response);
         } else {
-            String authHeader = request.getHeader(this.tokenHeader);
+            String authHeader = null;
+            javax.servlet.http.Cookie cookie = null;
+            javax.servlet.http.Cookie cookies[] = request.getCookies();
+            if (cookies != null) {
+                for (javax.servlet.http.Cookie cook : cookies) {
+                    if (Constant.JSESSIONID.equals(cook.getName())) {
+                        cookie = cook;
+                    }
+                }
+            }
+            if (cookie != null) {
+                authHeader = cookie.getValue();
+            }
+            if(authHeader == null){
+                authHeader = request.getHeader(this.tokenHeader);
+            }
             if (authHeader != null && authHeader.startsWith(this.tokenHead)) {
                 String authToken = authHeader.substring(this.tokenHead.length());// The part after "Bearer "
                 String username = jwtTokenUtil.getUserName(authToken);
@@ -45,6 +83,7 @@ public class JwtAuthenticationTokenFilter extends OncePerRequestFilter {
                     LOGGER.info("authenticated user:{}", username);
                     String newAuthToken = jwtTokenUtil.refreshToken(authToken);
                     response.setHeader(this.tokenHeader, this.tokenHead + newAuthToken);
+                    response
                     chain.doFilter(request, response);
                 } else {
                     response.setContentType("text/html;charset=UTF-8");
