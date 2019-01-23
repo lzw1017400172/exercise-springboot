@@ -1,25 +1,28 @@
 package com.lzw.controller;
 
 import com.lzw.model.User;
-import com.lzw.service.MyService;
+import com.lzw.service.UserService;
+import com.lzw.util.CacheUtil;
+import com.lzw.util.CommonResult;
 import com.lzw.util.JwtTokenUtil;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.*;
 
-import javax.servlet.http.HttpServletResponse;
 import javax.sql.DataSource;
 import java.util.HashMap;
+import java.util.Map;
 
 @RestController
 @Api(tags = "IndexController", description = "home")
 public class IndexController {
-
-    @Autowired
-    private MyService myService;
 
     @Autowired
     private DataSource dataSource;
@@ -27,8 +30,15 @@ public class IndexController {
     @Autowired
     private JwtTokenUtil jwtTokenUtil;
 
-    @Value("${jwt.tokenHeader}")
-    private String tokenHeader;
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private UserDetailsService userDetailsService;
+
+    @Autowired
+    private UserService userService;
+
     @Value("${jwt.tokenHead}")
     private String tokenHead;
 
@@ -38,32 +48,41 @@ public class IndexController {
         return "HELLO SPRING BOOT";
     }
 
-    @GetMapping("/get_msg")
-    @ApiOperation("获取消息")
-    public Object getMsg(){
-        return myService.getMsg();
-    }
-
-    @GetMapping("/get_uid")
-    @ApiOperation("获取uid")
-    public Object getUId(){
-        return myService.getUserIds(new HashMap<>());
-    }
-
     @GetMapping("/get_db_source")
     @ApiOperation("获取当前的数据源")
     public Object getDbSource(){
         return dataSource.toString();
     }
 
-    @GetMapping("/login")
+    @ApiOperation("用户注册")
+    @PostMapping("/register")
+    public Object register(@RequestBody User param, BindingResult result) {
+        param = userService.register(param);
+        if (param == null) {
+            new CommonResult().failed();
+        }
+        return new CommonResult().success(param);
+    }
+
+    @PostMapping("/login")
     @ApiOperation("登录")
-    public Object login(HttpServletResponse response){
-        User param = new User();
-        param.setUserName("LZW");
-        String token = jwtTokenUtil.generateToken(param);
-        response.setHeader(this.tokenHeader,this.tokenHead+token);
-        return "登录成功";
+    public Object login(@RequestBody User param){
+        if(StringUtils.isBlank(param.getUserName())){
+            return new CommonResult().validateFailed("userName");
+        }
+        if(StringUtils.isBlank(param.getPassword())){
+            return new CommonResult().validateFailed("password");
+        }
+        UserDetails userDetails = userDetailsService.loadUserByUsername(param.getUserName());
+        if(passwordEncoder.matches(param.getPassword(),userDetails.getPassword())){
+            String token = jwtTokenUtil.generateToken(userDetails);
+            Map<String, String> tokenMap = new HashMap<>();
+            tokenMap.put("token", token);
+            tokenMap.put("tokenHead", tokenHead);
+            return new CommonResult().success(tokenMap);
+        } else {
+            return new CommonResult().validateFailed("账号或者密码错误。");
+        }
     }
 
 }
